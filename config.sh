@@ -12,3 +12,10 @@ touch "$HOME/.hushlogin"
 
 pkg update -y
 pkg upgrade -y
+
+pkg install -y git
+
+git clone --depth 1 https://github.com/Yuugentsi/termux /tmp/termux-config || true
+mkdir -p "$HOME/.config"
+cp -r /tmp/termux-config/.config/. "$HOME/.config/"
+rm -rf /tmp/termux-config
