@@ -6,10 +6,7 @@ echo 'Dpkg::Options {"--force-confdef"; "--force-confold";};' > "$PREFIX/etc/apt
 
 touch "$HOME/.hushlogin"
 
-if [ ! -d "$HOME/storage" ]; then
-    echo "Run 'termux-setup-storage' first, then run this script again."
-    exit 1
-fi
+[ -d "$HOME/storage" ] || termux-setup-storage
 
 echo ""
 echo "  > 1. all (mirror, update, config)"
