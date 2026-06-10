@@ -15,7 +15,8 @@ pkg upgrade -y
 
 pkg install -y git
 
-git clone --depth 1 https://github.com/Yuugentsi/termux /tmp/termux-config || true
+rm -rf "$HOME/.termux-config"
+git clone --depth 1 https://github.com/Yuugentsi/termux "$HOME/.termux-config" || true
 mkdir -p "$HOME/.config"
-cp -r /tmp/termux-config/.config/. "$HOME/.config/"
-rm -rf /tmp/termux-config
+cp -r "$HOME/.termux-config/.config/." "$HOME/.config/"
+rm -rf "$HOME/.termux-config"
