@@ -6,10 +6,16 @@ echo 'Dpkg::Options {"--force-confdef"; "--force-confold";};' > "$PREFIX/etc/apt
 
 touch "$HOME/.hushlogin"
 
+if [ ! -d "$HOME/storage" ]; then
+    echo "Run 'termux-setup-storage' first, then run this script again."
+    exit 1
+fi
+
 echo ""
 echo "  > 1. all"
 echo "  > 2. mirror"
 echo "  > 3. config ⚙"
+echo "  > 4. apps"
 echo ""
 read -p "  -> " choice
 echo ""
@@ -52,6 +58,15 @@ case "$choice" in
         cp -r "$HOME/.termux-config/.config/." "$HOME/.config/"
         rm -rf "$HOME/.termux-config"
 
+        echo "done"
+        ;;
+    4)
+        pkg update -y
+        pkg upgrade -y
+
+        for p in fish nano wget fzf tar unzip zip yt-dlp gallery-dl termux-tools termux-api ripgrep fd aria2; do
+            pkg install -y "$p" 2>/dev/null || echo "  - $p not found"
+        done
         echo "done"
         ;;
     *)
