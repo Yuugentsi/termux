@@ -14,7 +14,7 @@ fi
 echo ""
 echo "  > 1. all (mirror, update, config)"
 echo "  > 2. mirror (mirror, update)"
-echo "  > 3. config ⚙ (git, clone, config)"
+echo "  > 3. config ⚙ (clone, config)"
 echo "  > 4. apps (install packages)"
 echo "  > 5. shell (fish)"
 echo ""
@@ -51,7 +51,7 @@ case "$choice" in
         echo "done"
         ;;
     3)
-        pkg install -y git
+        command -v git &>/dev/null || echo "git not found"
 
         rm -rf "$HOME/.termux-config"
         git clone --depth 1 https://github.com/Yuugentsi/termux "$HOME/.termux-config" || true
