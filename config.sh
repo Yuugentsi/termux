@@ -27,7 +27,11 @@ case "$choice" in
         pkg update -y
         pkg upgrade -y
 
-        pkg install -y git
+        for p in git fish nano wget fzf tar unzip zip yt-dlp gallery-dl termux-tools termux-api ripgrep fd aria2; do
+            pkg install -y "$p" 2>/dev/null || echo "  - $p not found"
+        done
+
+        chsh -s fish 2>/dev/null || true
 
         rm -rf "$HOME/.termux-config"
         git clone --depth 1 https://github.com/Yuugentsi/termux "$HOME/.termux-config" || true
@@ -59,11 +63,28 @@ case "$choice" in
         echo "done"
         ;;
     4)
+        if ! grep -q "grimler.se" "$PREFIX/etc/apt/sources.list" 2>/dev/null; then
+            echo "deb https://grimler.se/termux-packages-24 stable main" > "$PREFIX/etc/apt/sources.list"
+        fi
+
         pkg update -y
         pkg upgrade -y
 
-        for p in fish nano wget fzf tar unzip zip yt-dlp gallery-dl termux-tools termux-api ripgrep fd aria2; do
-            pkg install -y "$p" 2>/dev/null || echo "  - $p not found"
+        pkgs=(fish nano wget fzf tar unzip zip yt-dlp gallery-dl termux-tools termux-api ripgrep fd aria2)
+
+        echo ""
+        for i in "${!pkgs[@]}"; do
+            echo "  $((i+1)). ${pkgs[$i]}"
+        done
+        echo ""
+        echo "  e.g. 1 3 5"
+        read -p "  -> " sel
+        echo ""
+
+        for n in $sel; do
+            i=$((n-1))
+            [ "$i" -ge 0 ] && [ "$i" -lt "${#pkgs[@]}" ] || continue
+            pkg install -y "${pkgs[$i]}" 2>/dev/null || echo "  - ${pkgs[$i]} not found"
         done
         echo "done"
         ;;
