@@ -170,6 +170,56 @@ function venv
     end
 end
 
+# ───── wallhaven ─────
+function fish_command_not_found --on-event fish_command_not_found
+    if string match -qr '^https://w\.wallhaven\.cc/.*\.(jpg|png|webp)$' -- $argv[1]
+        mkdir -p $PREFIX/tmp
+
+        curl -Ls $argv[1] -o $PREFIX/tmp/wallhaven
+
+        and termux-wallpaper -f $PREFIX/tmp/wallhaven
+
+        and termux-notification \
+            --title "Wallpaper" \
+            --content "Wallpaper applied"
+
+        return
+    end
+
+    if string match -qr '^https://wallhaven\.cc/' -- $argv[1]
+        if not command -v gallery-dl >/dev/null 2>&1
+            echo "gallery-dl not found"
+            return
+        end
+
+        set -l cache ~/.cache/wallpapers
+        mkdir -p $cache
+
+        set -l i (realpath (gallery-dl $argv[1] 2>&1 | tail -n1 | string replace -r '^#\s+' '') 2>/dev/null)
+
+        if test -z "$i"
+            echo "download failed"
+            return
+        end
+
+        cp "$i" $cache/current.jpg
+
+        termux-wallpaper -f $cache/current.jpg
+
+        termux-notification \
+            --title "Wallpaper" \
+            --content "Wallpaper applied"
+
+        return
+    end
+
+    if type -q __extra_cnf
+        __extra_cnf $argv
+        and return
+    end
+
+    __fish_default_command_not_found_handler $argv
+end
 # ───── youtube ─────
 function __extra_cnf
     if not string match -qr '^https?://(www\.)?(youtube\.com|youtu\.be)/' -- $argv[1]; return 1; end
