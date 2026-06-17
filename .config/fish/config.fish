@@ -213,7 +213,10 @@ function h -d "list functions"
 
     # functions/*.fish
     set -l dir "$HOME/.config/fish/functions"
-    set -l files (command ls -1 "$dir"/*.fish 2>/dev/null)
+    set -l files
+    if test -d "$dir"
+        set files (find "$dir" -maxdepth 1 -type f -name '*.fish' 2>/dev/null)
+    end
 
     for file in $files
         set -l fname (basename "$file" .fish)
