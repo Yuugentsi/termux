@@ -1,6 +1,7 @@
 # ───── shell ─────
 set -g fish_greeting
 
+cd /storage/emulated/0/
 # ───── functions ─────
 for f in ~/.config/fish/functions/*.fish
     source $f
