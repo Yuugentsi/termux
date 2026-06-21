@@ -2,6 +2,9 @@
 set -g fish_greeting
 
 cd /storage/emulated/0/
+abbr -a sd /storage/emulated/0
+abbr -a termux /storage/emulated/0/termux
+
 # ───── functions ─────
 for f in ~/.config/fish/functions/*.fish
     source $f
