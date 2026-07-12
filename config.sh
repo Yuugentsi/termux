@@ -27,7 +27,7 @@ case "$choice" in
         pkg update -y
         pkg upgrade -y
 
-        for p in git fish nano wget fzf tar unzip zip yt-dlp gallery-dl termux-tools termux-api ripgrep fd aria2; do
+        for p in git fish nano wget fzf tar unzip zip termux-tools termux-api ripgrep fd; do
             pkg install -y "$p" 2>/dev/null || echo "  - $p not found"
         done
 
@@ -70,7 +70,7 @@ case "$choice" in
         pkg update -y
         pkg upgrade -y
 
-        pkgs=(fish nano wget fzf tar unzip zip yt-dlp gallery-dl termux-tools termux-api ripgrep fd aria2)
+        pkgs=(fish nano wget fzf tar unzip zip termux-tools termux-api ripgrep fd)
 
         echo ""
         for i in "${!pkgs[@]}"; do
