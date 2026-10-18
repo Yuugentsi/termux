@@ -24,17 +24,31 @@ case "$choice" in
             echo "deb https://grimler.se/termux-packages-24 stable main" > "$PREFIX/etc/apt/sources.list"
         fi
 
+        clone_pid=""
+        if command -v git &>/dev/null; then
+            rm -rf "$HOME/.termux-config"
+            git clone --depth 1 https://github.com/Yuugentsi/termux "$HOME/.termux-config" &
+            clone_pid=$!
+        fi
+
         pkg update -y
         pkg upgrade -y
 
-        for p in git fish nano wget fzf tar unzip zip termux-tools termux-api ripgrep fd; do
-            pkg install -y "$p" 2>/dev/null || echo "  - $p not found"
-        done
+        pkgs=(git fish nano wget fzf tar unzip zip termux-tools termux-api ripgrep fd)
+        pkg install -y "${pkgs[@]}" || {
+            for p in "${pkgs[@]}"; do
+                pkg install -y "$p" 2>/dev/null || echo "  - $p not found"
+            done
+        }
 
         chsh -s fish 2>/dev/null || true
 
-        rm -rf "$HOME/.termux-config"
-        git clone --depth 1 https://github.com/Yuugentsi/termux "$HOME/.termux-config" || true
+        if [ -n "$clone_pid" ]; then
+            wait "$clone_pid" || exit 1
+        else
+            rm -rf "$HOME/.termux-config"
+            git clone --depth 1 https://github.com/Yuugentsi/termux "$HOME/.termux-config" || exit 1
+        fi
         mkdir -p "$HOME/.config"
         cp -r "$HOME/.termux-config/.config/." "$HOME/.config/"
         rm -rf "$HOME/.termux-config"
@@ -81,11 +95,19 @@ case "$choice" in
         read -p "  -> " sel
         echo ""
 
+        selected=()
         for n in $sel; do
             i=$((n-1))
             [ "$i" -ge 0 ] && [ "$i" -lt "${#pkgs[@]}" ] || continue
-            pkg install -y "${pkgs[$i]}" 2>/dev/null || echo "  - ${pkgs[$i]} not found"
+            selected+=("${pkgs[$i]}")
         done
+        if [ "${#selected[@]}" -gt 0 ]; then
+            pkg install -y "${selected[@]}" || {
+                for p in "${selected[@]}"; do
+                    pkg install -y "$p" 2>/dev/null || echo "  - $p not found"
+                done
+            }
+        fi
         echo "done"
         ;;
     5)
