@@ -10,11 +10,10 @@ for f in ~/.config/fish/functions/*.fish
     source $f
 end
 
-
 alias rish='RISH_APPLICATION_ID=com.termux sh "$HOME/rish"'
-
-alias security='adb get-state >/dev/null && { security_packages=$(adb shell pm list packages --user 0 com.miui.securitycenter) && if printf "%s\n" "$security_packages" | tr -d "\r" | grep -qx "package:com.miui.securitycenter"; then adb shell pm uninstall -k --user 0 com.miui.securitycenter; else adb shell cmd package install-existing --user 0 com.miui.securitycenter && adb shell pm enable --user 0 com.miui.securitycenter; fi; }'
-
+#
+alias securityoff='pm uninstall -k --user 0 com.miui.securitycenter'
+alias securityon='cmd package install-existing --user 0 com.miui.securitycenter && pm enable --user 0 com.miui.securitycenter'
 # --- clear ---
 abbr -a c clear
 
