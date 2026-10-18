@@ -8,14 +8,23 @@ touch "$HOME/.hushlogin"
 
 [ -d "$HOME/storage" ] || termux-setup-storage
 
-echo ""
-echo "  > 1. all (mirror, update, config)"
-echo "  > 2. mirror (mirror, update)"
-echo "  > 3. config ⚙ (clone, config)"
-echo "  > 4. apps (install packages)"
-echo "  > 5. shell (fish)"
-echo ""
-read -p "  -> " choice
+cyan='' white='' dim='' reset=''
+if [ -t 1 ] && [ "${TERM:-}" != dumb ] && [ -z "${NO_COLOR+x}" ]; then
+    cyan=$'\e[38;2;137;220;235m'
+    white=$'\e[38;2;205;214;244m'
+    dim=$'\e[38;2;88;91;112m'
+    reset=$'\e[0m'
+fi
+
+printf '\n  %s◈ %stermux%s\n\n' "$cyan" "$white" "$reset"
+printf '  %s%s  %s%s %s%s%s\n' \
+    "$dim" 1 "$cyan" '✦' "$white" all "$reset" \
+    "$dim" 2 "$cyan" '↻' "$white" mirror "$reset" \
+    "$dim" 3 "$cyan" '◇' "$white" config "$reset" \
+    "$dim" 4 "$cyan" '↓' "$white" apps "$reset" \
+    "$dim" 5 "$cyan" '›' "$white" fish "$reset"
+printf '\n  %s❯%s ' "$cyan" "$reset"
+read -r choice
 echo ""
 
 case "$choice" in
@@ -88,11 +97,11 @@ case "$choice" in
 
         echo ""
         for i in "${!pkgs[@]}"; do
-            echo "  $((i+1)). ${pkgs[$i]}"
+            printf '  %s%2d  %s%s%s\n' "$cyan" "$((i+1))" "$white" "${pkgs[$i]}" "$reset"
         done
-        echo ""
-        echo "  e.g. 1 3 5"
-        read -p "  -> " sel
+        printf '\n  %s1 3 5 · select packages%s\n' "$dim" "$reset"
+        printf '  %s❯%s ' "$cyan" "$reset"
+        read -r sel
         echo ""
 
         selected=()
