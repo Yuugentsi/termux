@@ -112,6 +112,8 @@ pkg install -y "$@"
     for url in $argv
         set -l title "$url"
         set -l failure ''
+        set -l duration 0
+        set -l phase preparing
         set -l log_file (command mktemp "$log_dir/download.XXXXXXXX.log")
         if test -z "$log_file"
             functions -e __termux_mp3_status
@@ -119,7 +121,47 @@ pkg install -y "$@"
         end
         printf '%s\n' "$url" > "$log_file"
         __termux_mp3_status "◌ Preparing · $title" yellow
-        command yt-dlp --ignore-config -x \
+        command bash -c 'log_dir=$1
+shift
+progress_dir=$(mktemp -d "$log_dir/progress.XXXXXXXX") || exit 1
+progress="$progress_dir/ffmpeg"
+stop="$progress_dir/stop"
+watch_progress() {
+    local current previous=\'\'
+    while :; do
+        if [ -s "$progress" ]; then
+            current=$(awk -F= \'
+                $1 == "out_time_us" { time=$2 }
+                $1 == "speed" { speed=$2 }
+                $1 == "progress" { print time "|" speed "|" $2 }
+            \' "$progress" | tail -n 1)
+            if [[ "$current" != "$previous" && "$current" =~ ^[0-9]+\\| ]]; then
+                printf \'CONVERT:%s\\n\' "$current"
+                previous=$current
+            fi
+        fi
+        [ -e "$stop" ] && break
+        sleep 0.25
+    done
+}
+watch_progress &
+watch_pid=$!
+cleanup() {
+    kill "$watch_pid" 2>/dev/null || true
+    wait "$watch_pid" 2>/dev/null || true
+    rm -f "$progress" "$stop"
+    rmdir "$progress_dir"
+}
+trap cleanup EXIT
+trap \'exit 130\' INT
+trap \'exit 143\' TERM
+printf -v progress_arg \'%q\' "$progress"
+yt-dlp --postprocessor-args "ExtractAudio+ffmpeg_o:-progress $progress_arg -stats_period 0.25 -nostats" "$@"
+code=$?
+touch "$stop"
+wait "$watch_pid"
+exit "$code"
+' -- "$log_dir" --ignore-config -x \
             --audio-format mp3 \
             --audio-quality 0 \
             -f 'ba/b' \
@@ -142,6 +184,7 @@ pkg install -y "$@"
             --progress \
             --progress-template 'download:PROG:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(info.title)s' \
             --print 'before_dl:TITLE:%(title)s' \
+            --print 'before_dl:DURATION:%(duration)s' \
             --print 'after_move:DONE:%(title)s' \
             -o "$out_dir/%(title)s.%(ext)s" \
             -- "$url" 2>&1 | while read -l line
@@ -164,15 +207,52 @@ pkg install -y "$@"
                     end
                     __termux_mp3_status "↓ $percent $bar · $speed · ETA $eta · $title" cyan
                 end
+            else if string match -q 'DURATION:*' -- "$line"
+                set -l value (string sub -s 10 -- "$line")
+                if string match -qr '^[0-9]+(\.[0-9]+)?$' -- "$value"
+                    set duration "$value"
+                end
+            else if string match -q 'CONVERT:*' -- "$line"
+                if test "$phase" != converting
+                    continue
+                end
+                set -l parts (string split '|' -- (string sub -s 9 -- "$line"))
+                if test (count $parts) -ne 3; or not string match -qr '^[0-9]+$' -- "$parts[1]"
+                    continue
+                end
+                set -l seconds (math "$parts[1] / 1000000")
+                set -l speed (string trim -- "$parts[2]")
+                set -l detail (printf '%.0fs processed' "$seconds")
+                if test "$speed" != N/A; and test -n "$speed"
+                    set detail "$detail · $speed"
+                end
+                if test "$duration" -gt 0
+                    set -l percent (math "min(99, max(0, floor($seconds / $duration * 100)))")
+                    if test "$parts[3]" = end
+                        set percent 100
+                    end
+                    set -l filled (math "floor($percent / 10)")
+                    set -l bar (string join '' -- (string repeat -n $filled '━') (string repeat -n (math "10 - $filled") '─'))
+                    set detail "$percent% $bar · $speed"
+                    set -l rate (string replace -r 'x$' '' -- "$speed")
+                    if string match -qr '^[0-9]+(\.[0-9]+)?$' -- "$rate"; and test "$rate" -gt 0
+                        set -l eta (math "ceil(max(0, $duration - $seconds) / $rate)")
+                        set detail "$detail · ETA "$eta"s"
+                    end
+                end
+                __termux_mp3_status "♫ Converting $detail · $title" magenta
             else if string match -q 'DONE:*' -- "$line"
                 set title (string sub -s 6 -- "$line")
             else if string match -q 'ERROR:*' -- "$line"
                 set failure (string replace -r '^ERROR: *' '' -- "$line")
-            else if string match -q '*ExtractAudio*' -- "$line"
+            else if string match -qr '^\[ExtractAudio\]' -- "$line"
+                set phase converting
                 __termux_mp3_status "♫ Converting to MP3 · $title" magenta
-            else if string match -qr 'EmbedThumbnail|ThumbnailsConvertor' -- "$line"
+            else if string match -qr '^\[(EmbedThumbnail|ThumbnailsConvertor)\]' -- "$line"
+                set phase cover
                 __termux_mp3_status "◈ Adding cover · $title" magenta
-            else if string match -q '*Metadata*' -- "$line"
+            else if string match -qr '^\[Metadata\]' -- "$line"
+                set phase metadata
                 __termux_mp3_status "◇ Adding metadata · $title" magenta
             end
         end
