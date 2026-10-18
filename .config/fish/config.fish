@@ -10,6 +10,11 @@ for f in ~/.config/fish/functions/*.fish
     source $f
 end
 
+
+alias rish='RISH_APPLICATION_ID=com.termux sh "$HOME/rish"'
+
+alias security='adb get-state >/dev/null && { security_packages=$(adb shell pm list packages --user 0 com.miui.securitycenter) && if printf "%s\n" "$security_packages" | tr -d "\r" | grep -qx "package:com.miui.securitycenter"; then adb shell pm uninstall -k --user 0 com.miui.securitycenter; else adb shell cmd package install-existing --user 0 com.miui.securitycenter && adb shell pm enable --user 0 com.miui.securitycenter; fi; }'
+
 # --- clear ---
 abbr -a c clear
 
@@ -37,6 +42,7 @@ function volume; clear; set -q argv[1]; and set p $argv[1]; or set p 100; wpctl 
 
 # --- bak ---
 function bak -d "backup dir to bak/"; set -l d (pwd); if set -q argv[1]; set d (realpath "$argv[1]"); end; mkdir -p "$d/bak"; for f in "$d"/*; test "$f" != "$d/bak"; and cp -r "$f" "$d/bak/"; end; clear; and echo "󰄬 $d/bak"; end
+
 
 # --- config ---
 function config
