@@ -16,6 +16,55 @@ if [ -t 1 ] && [ "${TERM:-}" != dumb ] && [ -z "${NO_COLOR+x}" ]; then
     reset=$'\e[0m'
 fi
 
+select_mirror() {
+    local probe_dir arch mirror i pid result best speed bytes
+    local -a pids=() mirrors=(
+        https://packages.termux.dev/apt/termux-main
+        https://packages-cf.termux.dev/apt/termux-main
+        https://grimler.se/termux/termux-main
+        https://mirror.ufscar.br/termux/termux-main
+    )
+
+    command -v curl &>/dev/null || return 0
+    arch=$(dpkg --print-architecture) || return 1
+    probe_dir=$(mktemp -d) || return 1
+    printf '  %s◌%s Testing mirrors…%s\n' "$cyan" "$white" "$reset"
+
+    for i in "${!mirrors[@]}"; do
+        mirror=${mirrors[$i]}
+        (
+            result=$(LC_ALL=C curl --fail --silent --location \
+                --connect-timeout 3 --max-time 8 --range 0-262143 \
+                --output /dev/null --write-out '%{speed_download} %{size_download}' \
+                "$mirror/dists/stable/main/binary-$arch/Packages.xz") || exit 0
+            read -r speed bytes <<< "$result"
+            LC_ALL=C awk -v speed="$speed" -v bytes="$bytes" -v mirror="$mirror" \
+                'BEGIN { if (speed > 0 && bytes >= 262144) print speed, mirror }' > "$probe_dir/$i"
+        ) &
+        pids+=("$!")
+    done
+
+    for pid in "${pids[@]}"; do
+        wait "$pid"
+    done
+
+    best=$(LC_ALL=C sort -k1,1nr "$probe_dir"/* 2>/dev/null | head -n 1)
+    rm -rf "$probe_dir"
+    if [ -z "$best" ]; then
+        printf '  %s↻ Keeping current mirror%s\n' "$dim" "$reset"
+        return 0
+    fi
+
+    read -r speed mirror <<< "$best"
+    if [ -f "$PREFIX/etc/apt/sources.list.d/main.sources" ]; then
+        sed -i "s|^[[:space:]]*URIs:.*|URIs: $mirror|" "$PREFIX/etc/apt/sources.list.d/main.sources" || return 1
+    else
+        printf 'deb %s stable main\n' "$mirror" > "$PREFIX/etc/apt/sources.list" || return 1
+    fi
+    export TERMUX_PKG_NO_MIRROR_SELECT=true
+    printf '  %s✓%s %s%s\n' "$cyan" "$white" "$mirror" "$reset"
+}
+
 printf '\n  %s◈ %stermux%s\n\n' "$cyan" "$white" "$reset"
 printf '  %s%s  %s%s %s%s%s\n' \
     "$dim" 1 "$cyan" '✦' "$white" all "$reset" \
@@ -29,9 +78,7 @@ echo ""
 
 case "$choice" in
     1)
-        if ! grep -q "grimler.se" "$PREFIX/etc/apt/sources.list" 2>/dev/null; then
-            echo "deb https://grimler.se/termux-packages-24 stable main" > "$PREFIX/etc/apt/sources.list"
-        fi
+        select_mirror || exit 1
 
         clone_pid=""
         if command -v git &>/dev/null; then
@@ -65,9 +112,7 @@ case "$choice" in
         echo "done"
         ;;
     2)
-        if ! grep -q "grimler.se" "$PREFIX/etc/apt/sources.list" 2>/dev/null; then
-            echo "deb https://grimler.se/termux-packages-24 stable main" > "$PREFIX/etc/apt/sources.list"
-        fi
+        select_mirror || exit 1
 
         pkg update -y
         pkg upgrade -y
@@ -86,9 +131,7 @@ case "$choice" in
         echo "done"
         ;;
     4)
-        if ! grep -q "grimler.se" "$PREFIX/etc/apt/sources.list" 2>/dev/null; then
-            echo "deb https://grimler.se/termux-packages-24 stable main" > "$PREFIX/etc/apt/sources.list"
-        fi
+        select_mirror || exit 1
 
         pkg update -y
         pkg upgrade -y
