@@ -58,7 +58,7 @@ render_status() {
 }
 
 run() {
-    local label="$1" log_file pid frame=0 result=0 detail width rendered
+    local label="$1" log_file pid frame=0 result=0 detail width rendered log_fd char line="" latest="" count
     width=${COLUMNS:-80}
     [[ "$width" =~ ^[0-9]+$ ]] || width=80
     ((width > 8)) || width=80
@@ -70,17 +70,37 @@ run() {
         "$@"
     ) >"$log_file" 2>&1 &
     pid=$!
+    exec {log_fd}<"$log_file"
     if "$ANIMATED"; then
         printf '\033[?25l'
         while kill -0 "$pid" 2>/dev/null; do
-            detail=$(tail -c 2048 "$log_file" | tr '\r' '\n' | sed -E '/^[[:space:]]*$/d; /[Nn]o changes? (required|needed|made)/d; /[Tt]here is nothing to do/d' | tail -n 1 | LC_ALL=C tr -d '\000-\010\013-\037\177')
-            detail="${detail:-$label}"
+            count=0
+            while ((count < 4096)) && IFS= read -r -N 1 -t 0.001 -u "$log_fd" char; do
+                count=$((count + 1))
+                case "$char" in
+                    $'\n'|$'\r')
+                        case "$line" in
+                            ""|*[Nn]o\ change*|*[Tt]here\ is\ nothing\ to\ do*) ;;
+                            *) latest="$line" ;;
+                        esac
+                        line=""
+                        ;;
+                    *)
+                        if [[ "$char" != [[:cntrl:]] ]]; then
+                            line+="$char"
+                            line="${line: -512}"
+                        fi
+                        ;;
+                esac
+            done
+            detail="${latest:-$label}"
             rendered=$(render_status "$detail" "${frames[frame % 10]}" "$width")
             printf '\r%s\033[K' "$rendered"
             frame=$((frame + 1))
-            sleep 0.08
+            sleep 0.08 2>/dev/null || true
         done
     fi
+    exec {log_fd}<&-
     wait "$pid" || result=$?
     if "$ANIMATED"; then
         printf '\r\033[?25h'
@@ -94,9 +114,11 @@ run() {
         if "$ANIMATED"; then printf '\033[K'; fi
         printf '\n' >&2
         FAILED_STEPS+=("$label")
-        cat "$log_file" >&2
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            printf '%s\n' "$line" >&2
+        done < "$log_file"
     fi
-    rm -f "$log_file"
+    rm -f "$log_file" 2>/dev/null || true
     return 0
 }
 
