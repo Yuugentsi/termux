@@ -1,20 +1,117 @@
 #!/data/data/com.termux/files/usr/bin/bash
+set -euo pipefail
 
-export DEBIAN_FRONTEND=noninteractive
-mkdir -p "$PREFIX/etc/apt/apt.conf.d"
-echo 'Dpkg::Options {"--force-confdef"; "--force-confold";};' > "$PREFIX/etc/apt/apt.conf.d/99force-conf"
+PACKAGES=(git fish nano wget fzf tar unzip zip termux-tools termux-api ripgrep fd)
 
-touch "$HOME/.hushlogin"
+BOLD=""
+ACCENT=""
+GREEN=""
+DIM=""
+RED=""
+RESET=""
+FAILED_STEPS=()
+ANIMATED=false
 
-[ -d "$HOME/storage" ] || termux-setup-storage
-
-cyan='' white='' dim='' reset=''
-if [ -t 1 ] && [ "${TERM:-}" != dumb ] && [ -z "${NO_COLOR+x}" ]; then
-    cyan=$'\e[38;2;137;220;235m'
-    white=$'\e[38;2;205;214;244m'
-    dim=$'\e[38;2;88;91;112m'
-    reset=$'\e[0m'
+if [[ -t 1 && -z "${NO_COLOR+x}" && "${TERM:-dumb}" != "dumb" ]]; then
+    BOLD=$'\e[1m'
+    ACCENT=$'\e[38;2;137;220;235m'
+    GREEN=$'\e[38;2;166;227;161m'
+    DIM=$'\e[38;2;88;91;112m'
+    RED=$'\e[38;2;243;139;168m'
+    RESET=$'\e[0m'
+    ANIMATED=true
+    trap 'printf "\033[?25h"' EXIT
 fi
+
+step() {
+    printf '  %s◇%s %s\n' "$ACCENT" "$RESET" "$1"
+}
+
+render_status() {
+    local detail="$1" frame="$2" width="$3"
+    local phase package current total percent bar_width filled empty bar trail title_width
+    if [[ "$detail" =~ ^(Downloading|Installing)[[:space:]]+([^[:space:]]+)[[:space:]]+·[[:space:]]+([0-9]+)/([0-9]+)([[:space:]]+·[[:space:]]+([0-9]+)%)?$ ]]; then
+        phase="${BASH_REMATCH[1]}"
+        package="${BASH_REMATCH[2]}"
+        current="${BASH_REMATCH[3]}"
+        total="${BASH_REMATCH[4]}"
+        percent="${BASH_REMATCH[6]:-100}"
+        bar_width=12
+        title_width=$((width - 49))
+        if ((title_width < 8)); then
+            printf '  %s%s%s %.*s %s%s%%%s' "$ACCENT" "$frame" "$RESET" "$((width - 12))" "$package" "$DIM" "$percent" "$RESET"
+            return
+        fi
+        ((title_width > 30)) && title_width=30
+        filled=$((percent * bar_width / 100))
+        empty=$((bar_width - filled))
+        printf -v bar '%*s' "$filled" ''
+        printf -v trail '%*s' "$empty" ''
+        bar="${bar// /━}"
+        trail="${trail// /─}"
+        printf '  %s%s%s %s%-*.*s%s  %s%s%s%s%s  %3s%%  %s%2s/%-2s  %s%s' \
+            "$ACCENT" "$frame" "$RESET" "$BOLD" "$title_width" "$title_width" "$package" "$RESET" \
+            "$ACCENT" "$bar" "$DIM" "$trail" "$RESET" "$percent" "$DIM" "$current" "$total" "$phase" "$RESET"
+    else
+        printf '  %s%s%s %.*s' "$ACCENT" "$frame" "$RESET" "$((width - 5))" "$detail"
+    fi
+}
+
+run() {
+    local label="$1" log_file pid frame=0 result=0 detail width rendered
+    width=${COLUMNS:-80}
+    [[ "$width" =~ ^[0-9]+$ ]] || width=80
+    ((width > 8)) || width=80
+    local -a frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+    shift
+    log_file=$(mktemp)
+    (
+        set -euo pipefail
+        "$@"
+    ) >"$log_file" 2>&1 &
+    pid=$!
+    if "$ANIMATED"; then
+        printf '\033[?25l'
+        while kill -0 "$pid" 2>/dev/null; do
+            detail=$(tail -c 2048 "$log_file" | tr '\r' '\n' | sed -E '/^[[:space:]]*$/d; /[Nn]o changes? (required|needed|made)/d; /[Tt]here is nothing to do/d' | tail -n 1 | LC_ALL=C tr -d '\000-\010\013-\037\177')
+            detail="${detail:-$label}"
+            rendered=$(render_status "$detail" "${frames[frame % 10]}" "$width")
+            printf '\r%s\033[K' "$rendered"
+            frame=$((frame + 1))
+            sleep 0.08
+        done
+    fi
+    wait "$pid" || result=$?
+    if "$ANIMATED"; then
+        printf '\r\033[?25h'
+    fi
+    if ((result == 0)); then
+        printf '  %s✓%s %s' "$GREEN" "$RESET" "$label"
+        if "$ANIMATED"; then printf '\033[K'; fi
+        printf '\n'
+    else
+        printf '  %s✗%s %s' "$RED" "$RESET" "$label" >&2
+        if "$ANIMATED"; then printf '\033[K'; fi
+        printf '\n' >&2
+        FAILED_STEPS+=("$label")
+        cat "$log_file" >&2
+    fi
+    rm -f "$log_file"
+    return 0
+}
+
+finish() {
+    if ((${#FAILED_STEPS[@]})); then
+        printf '\n  %sSetup finished with %s failed step(s):%s\n' "$RED" "${#FAILED_STEPS[@]}" "$RESET" >&2
+        printf '  ✗ %s\n' "${FAILED_STEPS[@]}" >&2
+        return 1
+    fi
+    printf '\n  %s✓%s Setup complete.\n\n' "$GREEN" "$RESET"
+}
+
+header() {
+    printf '\n  %s%s◈  termux%s  %s/  %s%s\n\n' "$BOLD" "$ACCENT" "$RESET" "$DIM" "$1" "$RESET"
+}
 
 select_mirror() {
     local probe_dir arch mirror i pid result best speed bytes
@@ -28,7 +125,7 @@ select_mirror() {
     command -v curl &>/dev/null || return 0
     arch=$(dpkg --print-architecture) || return 1
     probe_dir=$(mktemp -d) || return 1
-    printf '  %s◌%s Testing mirrors…%s\n' "$cyan" "$white" "$reset"
+    printf 'Testing download mirrors…\n'
 
     for i in "${!mirrors[@]}"; do
         mirror=${mirrors[$i]}
@@ -48,10 +145,10 @@ select_mirror() {
         wait "$pid"
     done
 
-    best=$(LC_ALL=C sort -k1,1nr "$probe_dir"/* 2>/dev/null | head -n 1)
+    best=$(LC_ALL=C sort -k1,1nr "$probe_dir"/* 2>/dev/null | head -n 1) || best=""
     rm -rf "$probe_dir"
     if [ -z "$best" ]; then
-        printf '  %s↻ Keeping current mirror%s\n' "$dim" "$reset"
+        printf '  %s↻ Keeping current mirror%s\n' "$DIM" "$RESET"
         return 0
     fi
 
@@ -62,113 +159,160 @@ select_mirror() {
         printf 'deb %s stable main\n' "$mirror" > "$PREFIX/etc/apt/sources.list" || return 1
     fi
     export TERMUX_PKG_NO_MIRROR_SELECT=true
-    printf '  %s✓%s %s%s\n' "$cyan" "$white" "$mirror" "$reset"
+    printf '  %s✓%s %s%s\n' "$ACCENT" "$RESET" "$mirror" "$RESET"
 }
 
-printf '\n  %s◈ %stermux%s\n\n' "$cyan" "$white" "$reset"
-printf '  %s%s  %s%s %s%s%s\n' \
-    "$dim" 1 "$cyan" '✦' "$white" all "$reset" \
-    "$dim" 2 "$cyan" '↻' "$white" mirror "$reset" \
-    "$dim" 3 "$cyan" '◇' "$white" config "$reset" \
-    "$dim" 4 "$cyan" '↓' "$white" apps "$reset" \
-    "$dim" 5 "$cyan" '›' "$white" fish "$reset"
-printf '\n  %s❯%s ' "$cyan" "$reset"
+prepare_termux() {
+    mkdir -p "$PREFIX/etc/apt/apt.conf.d"
+    printf '%s\n' 'Dpkg::Options {"--force-confdef"; "--force-confold";};' > "$PREFIX/etc/apt/apt.conf.d/99force-conf"
+    touch "$HOME/.hushlogin"
+}
+
+apply_config() {
+    local source_dir script_dir download_dir
+    script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+    if [[ -d "$script_dir/.config" ]]; then
+        source_dir="$script_dir"
+    else
+        download_dir=$(mktemp -d)
+        git clone --depth 1 https://github.com/Yuugentsi/termux "$download_dir/repo"
+        source_dir="$download_dir/repo"
+    fi
+    mkdir -p "$HOME/.config"
+    cp -r "$source_dir/.config/." "$HOME/.config/"
+    if [[ -n "${download_dir:-}" ]]; then
+        rm -rf -- "$download_dir"
+    fi
+}
+
+install_apps() {
+    local package
+    for package in "$@"; do
+        run "Installing $package" pkg install -y "$package"
+    done
+}
+
+simulate_apps() {
+    local package percent index=0 total=${#PACKAGES[@]}
+    for package in "${PACKAGES[@]}"; do
+        index=$((index + 1))
+        for percent in 15 45 75 100; do
+            printf 'Downloading %s · %s/%s · %s%%\n' "$package" "$index" "$total" "$percent"
+            sleep 0.08
+        done
+        printf 'Installing %s · %s/%s · 100%%\n' "$package" "$index" "$total"
+        sleep 0.12
+    done
+}
+
+preview() {
+    header "preview · simulation"
+    run "Fastest mirror selected" sleep 0.5
+    run "Package index updated" sleep 0.5
+    run "Apps installed" simulate_apps
+    run "Fish configured" sleep 0.5
+    run "Configuration applied" sleep 0.5
+    printf '\n  %s✓%s Preview complete.\n\n' "$GREEN" "$RESET"
+}
+
+case "${1:-}" in
+    --preview) preview; exit 0 ;;
+    --help|-h)
+        printf 'Usage: bash %s [--preview | --help]\n' "$0"
+        exit 0
+        ;;
+    "") ;;
+    *) printf 'Unknown option: %s\n' "$1" >&2; exit 1 ;;
+esac
+
+if [[ -z "${PREFIX:-}" ]] || ! command -v pkg >/dev/null 2>&1; then
+    printf 'Run this installer inside Termux, or use --preview.\n' >&2
+    exit 1
+fi
+
+header "setup"
+printf '  %s01%s  Full setup\n' "$ACCENT" "$RESET"
+printf '  %s02%s  Mirror and updates\n' "$ACCENT" "$RESET"
+printf '  %s03%s  Apply configuration\n' "$ACCENT" "$RESET"
+printf '  %s04%s  Choose apps\n' "$ACCENT" "$RESET"
+printf '  %s05%s  Set up Fish\n\n' "$ACCENT" "$RESET"
+printf '  %s›%s ' "$ACCENT" "$RESET"
 read -r choice
-echo ""
+printf '\n'
+
+case "$choice" in
+    1|2|3|4|5) ;;
+    *) printf 'Invalid option. Choose 1–5.\n' >&2; exit 1 ;;
+esac
+
+selected=()
+if [[ "$choice" == 4 ]]; then
+    for i in "${!PACKAGES[@]}"; do
+        printf '  %s%2d%s  %s\n' "$ACCENT" "$((i + 1))" "$RESET" "${PACKAGES[$i]}"
+    done
+    printf '\n  %sSelect numbers (e.g. 1 3 5), or all:%s ' "$DIM" "$RESET"
+    read -r selection
+    if [[ "$selection" == all ]]; then
+        selected=("${PACKAGES[@]}")
+    else
+        read -r -a indices <<< "$selection"
+        for number in "${indices[@]}"; do
+            if [[ ! "$number" =~ ^[0-9]{1,2}$ ]]; then
+                printf 'Invalid package number: %s\n' "$number" >&2
+                exit 1
+            fi
+            index=$((10#$number - 1))
+            if ((index < 0 || index >= ${#PACKAGES[@]})); then
+                printf 'Invalid package number: %s\n' "$number" >&2
+                exit 1
+            fi
+            selected+=("${PACKAGES[$index]}")
+        done
+    fi
+    if ((${#selected[@]} == 0)); then
+        printf 'No apps selected.\n'
+        exit 0
+    fi
+    printf '\n'
+fi
+
+export DEBIAN_FRONTEND=noninteractive TERMUX_PKG_NO_MIRROR_SELECT=true
+run "Preparing Termux" prepare_termux
 
 case "$choice" in
     1)
-        select_mirror || exit 1
-
-        clone_pid=""
-        if command -v git &>/dev/null; then
-            rm -rf "$HOME/.termux-config"
-            git clone --depth 1 https://github.com/Yuugentsi/termux "$HOME/.termux-config" &
-            clone_pid=$!
+        if [[ ! -d "$HOME/storage" ]]; then
+            step "Grant storage access in the Android prompt"
+            run "Storage access requested" termux-setup-storage
         fi
-
-        pkg update -y
-        pkg upgrade -y
-
-        pkgs=(git fish nano wget fzf tar unzip zip termux-tools termux-api ripgrep fd)
-        pkg install -y "${pkgs[@]}" || {
-            for p in "${pkgs[@]}"; do
-                pkg install -y "$p" 2>/dev/null || echo "  - $p not found"
-            done
-        }
-
-        chsh -s fish 2>/dev/null || true
-
-        if [ -n "$clone_pid" ]; then
-            wait "$clone_pid" || exit 1
-        else
-            rm -rf "$HOME/.termux-config"
-            git clone --depth 1 https://github.com/Yuugentsi/termux "$HOME/.termux-config" || exit 1
-        fi
-        mkdir -p "$HOME/.config"
-        cp -r "$HOME/.termux-config/.config/." "$HOME/.config/"
-        rm -rf "$HOME/.termux-config"
-
-        echo "done"
+        run "Selecting fastest mirror" select_mirror
+        run "Updating package index" pkg update -y
+        run "Upgrading packages" pkg upgrade -y
+        install_apps "${PACKAGES[@]}"
+        run "Setting Fish as default shell" chsh -s fish
+        run "Applying configuration" apply_config
         ;;
     2)
-        select_mirror || exit 1
-
-        pkg update -y
-        pkg upgrade -y
-
-        echo "done"
+        run "Selecting fastest mirror" select_mirror
+        run "Updating package index" pkg update -y
+        run "Upgrading packages" pkg upgrade -y
         ;;
     3)
-        command -v git &>/dev/null || echo "git not found"
-
-        rm -rf "$HOME/.termux-config"
-        git clone --depth 1 https://github.com/Yuugentsi/termux "$HOME/.termux-config" || true
-        mkdir -p "$HOME/.config"
-        cp -r "$HOME/.termux-config/.config/." "$HOME/.config/"
-        rm -rf "$HOME/.termux-config"
-
-        echo "done"
+        if ! command -v git >/dev/null 2>&1; then
+            run "Installing Git" pkg install -y git
+        fi
+        run "Applying configuration" apply_config
         ;;
     4)
-        select_mirror || exit 1
-
-        pkg update -y
-        pkg upgrade -y
-
-        pkgs=(fish nano wget fzf tar unzip zip termux-tools termux-api ripgrep fd)
-
-        echo ""
-        for i in "${!pkgs[@]}"; do
-            printf '  %s%2d  %s%s%s\n' "$cyan" "$((i+1))" "$white" "${pkgs[$i]}" "$reset"
-        done
-        printf '\n  %s1 3 5 · select packages%s\n' "$dim" "$reset"
-        printf '  %s❯%s ' "$cyan" "$reset"
-        read -r sel
-        echo ""
-
-        selected=()
-        for n in $sel; do
-            i=$((n-1))
-            [ "$i" -ge 0 ] && [ "$i" -lt "${#pkgs[@]}" ] || continue
-            selected+=("${pkgs[$i]}")
-        done
-        if [ "${#selected[@]}" -gt 0 ]; then
-            pkg install -y "${selected[@]}" || {
-                for p in "${selected[@]}"; do
-                    pkg install -y "$p" 2>/dev/null || echo "  - $p not found"
-                done
-            }
-        fi
-        echo "done"
+        run "Selecting fastest mirror" select_mirror
+        run "Updating package index" pkg update -y
+        run "Upgrading packages" pkg upgrade -y
+        install_apps "${selected[@]}"
         ;;
     5)
-        pkg install -y fish
-        chsh -s fish
-        echo "done"
-        ;;
-    *)
-        echo "invalid"
-        exit 1
+        run "Installing Fish" pkg install -y fish
+        run "Setting Fish as default shell" chsh -s fish
         ;;
 esac
+
+finish
