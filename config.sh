@@ -214,6 +214,23 @@ install_apps() {
     done
 }
 
+install_downloader() {
+    local app="$1"
+    case "$app" in
+        aria2)
+            pkg install -y aria2
+            ;;
+        yt-dlp)
+            pkg install -y python python-pip ffmpeg
+            python -m pip install --upgrade 'yt-dlp[default]'
+            ;;
+        gallery-dl)
+            pkg install -y python python-pip
+            python -m pip install --upgrade gallery-dl
+            ;;
+    esac
+}
+
 simulate_apps() {
     local package percent index=0 total=${#PACKAGES[@]}
     for package in "${PACKAGES[@]}"; do
@@ -257,14 +274,15 @@ printf '  %s01%s  Full setup\n' "$ACCENT" "$RESET"
 printf '  %s02%s  Mirror and updates\n' "$ACCENT" "$RESET"
 printf '  %s03%s  Apply configuration\n' "$ACCENT" "$RESET"
 printf '  %s04%s  Choose apps\n' "$ACCENT" "$RESET"
-printf '  %s05%s  Set up Fish\n\n' "$ACCENT" "$RESET"
+printf '  %s05%s  Set up Fish\n' "$ACCENT" "$RESET"
+printf '  %s06%s  Install all download tools\n\n' "$ACCENT" "$RESET"
 printf '  %s›%s ' "$ACCENT" "$RESET"
 read -r choice
 printf '\n'
 
 case "$choice" in
-    1|2|3|4|5) ;;
-    *) printf 'Invalid option. Choose 1–5.\n' >&2; exit 1 ;;
+    1|2|3|4|5|6) ;;
+    *) printf 'Invalid option. Choose 1–6.\n' >&2; exit 1 ;;
 esac
 
 selected=()
@@ -334,7 +352,13 @@ case "$choice" in
     5)
         run "Installing Fish" pkg install -y fish
         run "Setting Fish as default shell" chsh -s fish
+        ;;    6)
+        run "Updating package index" pkg update -y
+        for app in yt-dlp aria2 gallery-dl; do
+            run "Installing $app" install_downloader "$app"
+        done
         ;;
+
 esac
 
 finish
