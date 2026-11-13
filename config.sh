@@ -135,12 +135,6 @@ header() {
     printf '\n  %s%s◈  termux%s  %s/  %s%s\n\n' "$BOLD" "$ACCENT" "$RESET" "$DIM" "$1" "$RESET"
 }
 
-system_update() {
-    run "Selecting fastest mirror" select_mirror
-    run "Updating package index" pkg update -y
-    run "Upgrading packages" pkg upgrade -y
-}
-
 select_mirror() {
     local probe_dir arch mirror i pid result best speed bytes
     local -a pids=() mirrors=(
@@ -214,10 +208,9 @@ apply_config() {
 }
 
 install_apps() {
-    local package index=0 total=$#
+    local package
     for package in "$@"; do
-        index=$((index + 1))
-        run "Installing $package · $index/$total" pkg install -y "$package"
+        run "Installing $package" pkg install -y "$package"
     done
 }
 
@@ -238,21 +231,16 @@ install_downloader() {
     esac
 }
 
-simulate_package() {
-    local package="$1" index="$2" total="$3" percent
-    for percent in 15 45 75 100; do
-        printf 'Downloading %s · %s/%s · %s%%\n' "$package" "$index" "$total" "$percent"
-        sleep 0.08
-    done
-    printf 'Installing %s · %s/%s · 100%%\n' "$package" "$index" "$total"
-    sleep 0.12
-}
-
 simulate_apps() {
-    local package index=0 total=${#PACKAGES[@]}
+    local package percent index=0 total=${#PACKAGES[@]}
     for package in "${PACKAGES[@]}"; do
         index=$((index + 1))
-        run "Installing $package · $index/$total" simulate_package "$package" "$index" "$total"
+        for percent in 15 45 75 100; do
+            printf 'Downloading %s · %s/%s · %s%%\n' "$package" "$index" "$total" "$percent"
+            sleep 0.08
+        done
+        printf 'Installing %s · %s/%s · 100%%\n' "$package" "$index" "$total"
+        sleep 0.12
     done
 }
 
@@ -260,7 +248,7 @@ preview() {
     header "preview · simulation"
     run "Fastest mirror selected" sleep 0.5
     run "Package index updated" sleep 0.5
-    simulate_apps
+    run "Apps installed" simulate_apps
     run "Fish configured" sleep 0.5
     run "Configuration applied" sleep 0.5
     printf '\n  %s✓%s Preview complete.\n\n' "$GREEN" "$RESET"
@@ -337,13 +325,17 @@ case "$choice" in
             step "Grant storage access in the Android prompt"
             run "Storage access requested" termux-setup-storage
         fi
-        system_update
+        run "Selecting fastest mirror" select_mirror
+        run "Updating package index" pkg update -y
+        run "Upgrading packages" pkg upgrade -y
         install_apps "${PACKAGES[@]}"
         run "Setting Fish as default shell" chsh -s fish
         run "Applying configuration" apply_config
         ;;
     2)
-        system_update
+        run "Selecting fastest mirror" select_mirror
+        run "Updating package index" pkg update -y
+        run "Upgrading packages" pkg upgrade -y
         ;;
     3)
         if ! command -v git >/dev/null 2>&1; then
@@ -352,14 +344,15 @@ case "$choice" in
         run "Applying configuration" apply_config
         ;;
     4)
-        system_update
+        run "Selecting fastest mirror" select_mirror
+        run "Updating package index" pkg update -y
+        run "Upgrading packages" pkg upgrade -y
         install_apps "${selected[@]}"
         ;;
     5)
         run "Installing Fish" pkg install -y fish
         run "Setting Fish as default shell" chsh -s fish
-        ;;
-    6)
+        ;;    6)
         run "Updating package index" pkg update -y
         for app in yt-dlp aria2 gallery-dl; do
             run "Installing $app" install_downloader "$app"
